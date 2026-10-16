@@ -30,8 +30,15 @@ st.markdown("""
         text-align: center;
         color: #1e293b;
         margin-top: 1.5rem;
-        margin-bottom: 2rem;
+        margin-bottom: 0.5rem;
         letter-spacing: -0.02em;
+    }
+
+    .app-subtitle {
+        font-size: 1.05rem;
+        text-align: center;
+        color: #64748b;
+        margin-bottom: 2rem;
     }
     
     .result-container {
@@ -67,6 +74,7 @@ def get_model():
 
 def main():
     st.markdown('<div class="app-title">犬か猫かちんぽか</div>', unsafe_allow_html=True)
+    st.markdown('<div class="app-subtitle">アップした画像が「犬」「猫」「ちんぽ」のどれに一番近いか判定します。</div>', unsafe_allow_html=True)
 
     # Preload model in background
     model, processor, device = get_model()
