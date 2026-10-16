@@ -1,15 +1,50 @@
 """
 Dog, Cat, or Penis Classifier App.
-Ultra-minimalist, sleek UI.
+Ultra-minimalist, sleek UI, self-contained for cloud stability.
 """
+import sys
 from pathlib import Path
+from typing import Tuple, Dict, Any, List
 from PIL import Image
 import streamlit as st
 
-from similarity import load_clip_model, classify_three_way
-from config import DEFAULT_MODEL_NAME
+# Ensure root directory is always on python sys.path
+BASE_DIR = Path(__file__).resolve().parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
-# Page setup - minimalist & centered
+# Assets and candidates setup
+ASSETS_DIR = BASE_DIR / "assets"
+DEFAULT_MODEL_NAME = "openai/clip-vit-base-patch32"
+
+RESULT_IMAGES = {
+    "dog": ASSETS_DIR / "result_dog.jpg",
+    "cat": ASSETS_DIR / "result_cat.jpg",
+    "chinpo": ASSETS_DIR / "result_chinpo.webp",
+}
+
+CANDIDATES = [
+    {
+        "key": "dog",
+        "name": "犬",
+        "prompt": "a dog",
+        "image_path": RESULT_IMAGES["dog"]
+    },
+    {
+        "key": "cat",
+        "name": "猫",
+        "prompt": "a cat",
+        "image_path": RESULT_IMAGES["cat"]
+    },
+    {
+        "key": "chinpo",
+        "name": "ちんぽ",
+        "prompt": "a penis",
+        "image_path": RESULT_IMAGES["chinpo"]
+    }
+]
+
+# Page configuration
 st.set_page_config(
     page_title="犬か猫かちんぽか",
     page_icon="🐾",
@@ -41,16 +76,6 @@ st.markdown("""
         margin-bottom: 2rem;
     }
     
-    .result-container {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        margin-top: 2rem;
-        border-radius: 16px;
-        overflow: hidden;
-        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-    }
-    
     [data-testid="stFileUploadDropzone"] {
         border-radius: 16px;
         padding: 2.5rem 1rem;
@@ -67,9 +92,46 @@ st.markdown("""
 
 
 @st.cache_resource(show_spinner=False)
-def get_model():
-    """Load and cache CLIP model."""
-    return load_clip_model(DEFAULT_MODEL_NAME)
+def load_clip_resources():
+    """Load PyTorch CLIP model and processor."""
+    import torch
+    from transformers import CLIPProcessor, CLIPModel
+
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
+
+    model = CLIPModel.from_pretrained(DEFAULT_MODEL_NAME).to(device)
+    model.eval()
+    processor = CLIPProcessor.from_pretrained(DEFAULT_MODEL_NAME)
+    return model, processor, device
+
+
+def classify_image(
+    image: Image.Image,
+    model,
+    processor,
+    device,
+    candidates: List[Dict[str, Any]] = CANDIDATES
+) -> Dict[str, Any]:
+    """Zero-shot classification across candidates."""
+    import torch
+
+    if image.mode != "RGB":
+        image = image.convert("RGB")
+
+    prompts = [c["prompt"] for c in candidates]
+    inputs = processor(text=prompts, images=image, return_tensors="pt", padding=True).to(device)
+
+    with torch.no_grad():
+        outputs = model(**inputs)
+        probs = outputs.logits_per_image.softmax(dim=1)[0]
+        best_index = int(torch.argmax(probs).item())
+
+    return candidates[best_index]
 
 
 def main():
@@ -77,7 +139,8 @@ def main():
     st.markdown('<div class="app-subtitle">アップした画像が「犬」「猫」「ちんぽ」のどれに一番近いか判定します。</div>', unsafe_allow_html=True)
 
     # Preload model in background
-    model, processor, device = get_model()
+    with st.spinner("AIモデルを準備中..."):
+        model, processor, device = load_clip_resources()
 
     # Minimal drag & drop upload area
     uploaded_file = st.file_uploader(
@@ -91,7 +154,7 @@ def main():
             input_image = Image.open(uploaded_file)
             
             with st.spinner("判定中..."):
-                winner = classify_three_way(
+                winner = classify_image(
                     image=input_image,
                     model=model,
                     processor=processor,
