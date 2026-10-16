@@ -1,10 +1,11 @@
 """
 Dog, Cat, or Penis Classifier App.
-Ultra-minimalist, sleek UI, self-contained for cloud stability.
+Ultra-minimalist, sleek UI, with Fullscreen Result Overlay.
 """
 import sys
+import base64
 from pathlib import Path
-from typing import Tuple, Dict, Any, List
+from typing import Dict, Any, List
 from PIL import Image
 import streamlit as st
 
@@ -91,6 +92,17 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+def get_image_base64(path: Path) -> str:
+    """Encode image to base64 Data URI."""
+    with open(path, "rb") as f:
+        data = f.read()
+    ext = path.suffix.lower().lstrip(".")
+    mime = "image/webp" if ext == "webp" else f"image/{ext}"
+    if mime == "image/jpg":
+        mime = "image/jpeg"
+    return f"data:{mime};base64,{base64.b64encode(data).decode()}"
+
+
 @st.cache_resource(show_spinner=False)
 def load_clip_resources():
     """Load PyTorch CLIP model and processor."""
@@ -135,19 +147,24 @@ def classify_image(
 
 
 def main():
-    st.markdown('<div class="app-title">犬か猫かちんぽか</div>', unsafe_allow_html=True)
-    st.markdown('<div class="app-subtitle">アップした画像が「犬」「猫」「ちんぽ」のどれに一番近いか判定します。</div>', unsafe_allow_html=True)
-
     # Preload model in background
     with st.spinner("AIモデルを準備中..."):
         model, processor, device = load_clip_resources()
 
-    # Minimal drag & drop upload area
-    uploaded_file = st.file_uploader(
-        "画像をアップロード",
-        type=["jpg", "jpeg", "png", "webp"],
-        label_visibility="collapsed"
-    )
+    # Container for UI
+    ui_placeholder = st.empty()
+
+    with ui_placeholder.container():
+        st.markdown('<div class="app-title">犬か猫かちんぽか</div>', unsafe_allow_html=True)
+        st.markdown('<div class="app-subtitle">アップした画像が「犬」「猫」「ちんぽ」のどれに一番近いか判定します。</div>', unsafe_allow_html=True)
+
+        # Minimal drag & drop upload area
+        uploaded_file = st.file_uploader(
+            "画像をアップロード",
+            type=["jpg", "jpeg", "png", "webp"],
+            label_visibility="collapsed",
+            key="uploader"
+        )
 
     if uploaded_file is not None:
         try:
@@ -161,11 +178,70 @@ def main():
                     device=device
                 )
 
-            # Display the designated resulting image
             res_image_path = Path(winner["image_path"])
             if res_image_path.exists():
-                res_img = Image.open(res_image_path)
-                st.image(res_img, use_container_width=True)
+                img_data_uri = get_image_base64(res_image_path)
+                
+                # Clear standard UI and show Fullscreen Overlay
+                ui_placeholder.empty()
+
+                st.markdown(f"""
+                <style>
+                    /* Maximize viewport */
+                    .block-container {{
+                        padding: 0 !important;
+                        max-width: 100vw !important;
+                    }}
+                    .fullscreen-overlay {{
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        width: 100vw;
+                        height: 100vh;
+                        background: #0f172a;
+                        display: flex;
+                        flex-direction: column;
+                        justify-content: center;
+                        align-items: center;
+                        z-index: 9999999;
+                        cursor: pointer;
+                        user-select: none;
+                        animation: fadeIn 0.25s ease-out;
+                    }}
+                    .fullscreen-img {{
+                        max-width: 95vw;
+                        max-height: 85vh;
+                        object-fit: contain;
+                        border-radius: 14px;
+                        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+                        animation: zoomIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+                    }}
+                    .tap-hint {{
+                        color: #94a3b8;
+                        font-size: 0.95rem;
+                        margin-top: 1.2rem;
+                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                        letter-spacing: 0.05em;
+                        opacity: 0.9;
+                    }}
+                    @keyframes fadeIn {{
+                        from {{ opacity: 0; }}
+                        to {{ opacity: 1; }}
+                    }}
+                    @keyframes zoomIn {{
+                        from {{ transform: scale(0.9); opacity: 0; }}
+                        to {{ transform: scale(1); opacity: 1; }}
+                    }}
+                </style>
+                <div class="fullscreen-overlay" onclick="window.location.reload();">
+                    <img src="{img_data_uri}" class="fullscreen-img" alt="判定結果" />
+                    <div class="tap-hint">👆 画面をクリックしてもう一度試す</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Secondary button for mobile / keyboard navigation
+                if st.button("✕ もう一度試す"):
+                    st.rerun()
             else:
                 st.error("指定画像が見つかりません。")
 
